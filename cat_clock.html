@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <title>实时指针钟盘</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        user-select: none; /* 避免拖动时干扰视觉 */
+      }
+
+      body {
+        min-height: 100vh;
+        background: linear-gradient(145deg, #faf7f2 0%, #f0ebe1 100%);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-family:
+          "Segoe UI",
+          "Roboto",
+          "Poppins",
+          "SF Pro Text",
+          system-ui,
+          -apple-system,
+          "Helvetica Neue",
+          sans-serif;
+        padding: 20px;
+      }
+
+      /* 主卡片 - 小红书笔记风格 */
+      .clock-card {
+        background: #ffffffea;
+        backdrop-filter: blur(0px);
+        border-radius: 64px;
+        box-shadow:
+          0 25px 45px -12px rgba(0, 0, 0, 0.25),
+          0 4px 12px rgba(0, 0, 0, 0.05),
+          inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        padding: 28px 24px 32px 24px;
+        transition: all 0.2s ease;
+        border: 1px solid rgba(255, 110, 110, 0.2);
+      }
+
+      /* 画布容器，柔和阴影 */
+      .canvas-wrapper {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 20px;
+        position: relative;
+      }
+
+      canvas {
+        display: block;
+        margin: 0 auto;
+        width: 100%;
+        height: auto;
+        max-width: 400px;
+        border-radius: 50%;
+        box-shadow:
+          0 12px 28px rgba(0, 0, 0, 0.1),
+          0 0 0 8px #fff5ef,
+          0 0 0 12px #ffdad2;
+        transition: box-shadow 0.2s;
+        background: #fffcf9;
+      }
+
+      /* 数字时间区 - 小红书红调 */
+      .digital-time {
+        text-align: center;
+        margin-top: 20px;
+        padding: 16px 20px;
+        background: #fff8f5;
+        border-radius: 60px;
+        box-shadow:
+          inset 0 1px 3px #0001,
+          0 6px 12px -6px rgba(0, 0, 0, 0.1);
+        backdrop-filter: blur(2px);
+        border: 1px solid #ffe2d4;
+      }
+
+      .time-main {
+        font-size: 3.1rem;
+        font-weight: 700;
+        letter-spacing: 3px;
+        font-family: "SF Mono", "Fira Mono", monospace;
+        color: #e6553e;
+        text-shadow: 0 1px 0 #fff2e6;
+        background: linear-gradient(135deg, #e64b2e, #c73b1e);
+        background-clip: text;
+        -webkit-background-clip: text;
+        color: transparent;
+        background-color: #e6553e;
+        text-shadow: none;
+        display: inline-block;
+      }
+      /* 兼容不支持渐变的情况 */
+      @supports not (background-clip: text) {
+        .time-main {
+          color: #e6553e;
+          background: none;
+        }
+      }
+
+      .date-info {
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: #c27e6b;
+        margin-top: 8px;
+        letter-spacing: 1px;
+        display: flex;
+        justify-content: center;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+
+      .rednote-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #fff0ea;
+        padding: 6px 14px;
+        border-radius: 60px;
+        font-size: 0.7rem;
+        font-weight: 500;
+        color: #e6502f;
+        gap: 6px;
+        margin-top: 12px;
+        width: fit-content;
+        margin-left: auto;
+        margin-right: auto;
+        border: 0.5px solid #ffcdbc;
+        backdrop-filter: blur(2px);
+      }
+
+      .rednote-badge span:first-child {
+        font-weight: 600;
+        background: #e6502f;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 40px;
+        font-size: 0.65rem;
+      }
+
+      .footer-note {
+        font-size: 0.68rem;
+        text-align: center;
+        margin-top: 14px;
+        color: #c29a89;
+        letter-spacing: 0.3px;
+      }
+
+      @media (max-width: 480px) {
+        .clock-card {
+          padding: 20px 16px 24px 16px;
+          border-radius: 48px;
+        }
+        .time-main {
+          font-size: 2.3rem;
+        }
+        .date-info {
+          font-size: 0.75rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="clock-card">
+      <div class="canvas-wrapper">
+        <canvas
+          id="analogCanvas"
+          width="400"
+          height="400"
+          style="width: 100%; height: auto; max-width: 400px; aspect-ratio: 1/1"
+        >
+          您的浏览器不支持Canvas动画，请升级浏览器。
+        </canvas>
+      </div>
+      <div class="digital-time">
+        <div class="time-main" id="liveDigitalClock">--:--:--</div>
+        <div class="date-info" id="dateWeekInfo"></div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        // ------ 获取canvas元素与上下文 ------
+        const canvas = document.getElementById("analogCanvas");
+        const ctx = canvas.getContext("2d");
+
+        // 固定画板尺寸 (400x400 高清绘图)
+        const size = 400;
+        canvas.width = size;
+        canvas.height = size;
+
+        // 中心点 & 半径 (留出边缘空隙)
+        const centerX = size / 2;
+        const centerY = size / 2;
+        const radius = 180; // 表盘半径
+
+        // 辅助函数: 获取当前完整时间对象 (含毫秒，用于平滑指针)
+        function getPreciseTime() {
+          const now = new Date();
+          const hours = now.getHours();
+          const minutes = now.getMinutes();
+          const seconds = now.getSeconds();
+          const milliseconds = now.getMilliseconds();
+          return { hours, minutes, seconds, milliseconds, fullDate: now };
+        }
+
+        // ---------- 绘制静态表盘 (刻度、数字、装饰元素，保留小红书基调) ----------
+        function drawDial() {
+          ctx.save();
+          ctx.shadowBlur = 0; // 表盘干净阴影后置
+          // 背景圆形 (暖白柔肤质感)
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius + 4, 0, Math.PI * 2);
+          ctx.fillStyle = "#FFFBF7";
+          ctx.fill();
+          ctx.shadowColor = "rgba(0,0,0,0.08)";
+          ctx.shadowBlur = 8;
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+          ctx.fillStyle = "#FFFDF9";
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          // 外圈装饰细红线 (小红书标志性红)
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius + 2, 0, Math.PI * 2);
+          ctx.strokeStyle = "#f55b3c";
+          ctx.lineWidth = 1.8;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius - 2, 0, Math.PI * 2);
+          ctx.strokeStyle = "#f3cfc0";
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+
+          // 内圈柔和光晕
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius - 8, 0, Math.PI * 2);
+          ctx.strokeStyle = "#ffe0d4";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          // ---- 绘制小时刻度 (12个大刻度) & 分钟刻度 ----
+          for (let i = 0; i < 60; i++) {
+            const angle = (i * 6 * Math.PI) / 180;
+            const isHour = i % 5 === 0;
+            let startLen, endLen;
+            if (isHour) {
+              startLen = radius - 14;
+              endLen = radius + 3;
+            } else {
+              startLen = radius - 8;
+              endLen = radius + 1;
+            }
+            const xStart = centerX + startLen * Math.cos(angle);
+            const yStart = centerY + startLen * Math.sin(angle);
+            const xEnd = centerX + endLen * Math.cos(angle);
+            const yEnd = centerY + endLen * Math.sin(angle);
+
+            ctx.beginPath();
+            ctx.moveTo(xStart, yStart);
+            ctx.lineTo(xEnd, yEnd);
+            if (isHour) {
+              ctx.lineWidth = 2.5;
+              ctx.strokeStyle = "#d95436";
+            } else {
+              ctx.lineWidth = 1.2;
+              ctx.strokeStyle = "#d9b2a0";
+            }
+            ctx.stroke();
+          }
+
+          // ---- 绘制罗马风格数字 / 阿拉伯数字 (温暖赤陶色) ----
+          ctx.font = `500 18px 'Segoe UI', 'Poppins', system-ui`;
+          ctx.fillStyle = "#b25d46";
+          ctx.shadowBlur = 0;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const numbers = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+          for (let i = 0; i < numbers.length; i++) {
+            const angle = ((i * 30 - 90) * Math.PI) / 180; // 从12点钟开始偏移
+            const numRadius = radius - 28;
+            const x = centerX + numRadius * Math.cos(angle);
+            const y = centerY + numRadius * Math.sin(angle);
+            ctx.fillStyle = "#c0664a";
+            ctx.font = `600 18px 'Segoe UI', 'SF Pro Text', system-ui`;
+            ctx.fillText(numbers[i].toString(), x, y);
+            // 加一点小红点装饰 (每3小时加一点可爱风格)
+            if (
+              numbers[i] === 12 ||
+              numbers[i] === 3 ||
+              numbers[i] === 6 ||
+              numbers[i] === 9
+            ) {
+              ctx.beginPath();
+              ctx.arc(x + 12, y - 8, 2.2, 0, 2 * Math.PI);
+              ctx.fillStyle = "#f0836b";
+              ctx.fill();
+            }
+          }
+
+          // 额外小刻度标点 (细致感)
+          for (let i = 0; i < 60; i++) {
+            if (i % 5 !== 0) {
+              const angle = (i * 6 * Math.PI) / 180;
+              const xDot = centerX + (radius - 6) * Math.cos(angle);
+              const yDot = centerY + (radius - 6) * Math.sin(angle);
+              ctx.beginPath();
+              ctx.arc(xDot, yDot, 1, 0, Math.PI * 2);
+              ctx.fillStyle = "#ebaa93";
+              ctx.fill();
+            }
+          }
+
+          // ---- 中央装饰: 小红书灵感印记 (红色圆章+书本符号) ----
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, 14, 0, Math.PI * 2);
+          ctx.fillStyle = "#f45b38";
+          ctx.shadowBlur = 3;
+          ctx.shadowColor = "rgba(0,0,0,0.1)";
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, 11, 0, Math.PI * 2);
+          ctx.fillStyle = "#fff2e9";
+          ctx.fill();
+          ctx.font = `bold 15px 'Segoe UI', 'Noto Emoji'`;
+          ctx.fillStyle = "#dd4b2c";
+          ctx.shadowBlur = 0;
+          ctx.fillText("📕", centerX - 5, centerY + 5);
+          ctx.font = `500 8px system-ui`;
+          ctx.fillStyle = "#a5472f";
+          ctx.fillText("R", centerX + 4, centerY - 3);
+
+          // 围绕中心的一圈小红点 (笔记点缀)
+          for (let ang = 0; ang < 360; ang += 30) {
+            const rad = (ang * Math.PI) / 180;
+            const rr = 24;
+            const xDot = centerX + rr * Math.cos(rad);
+            const yDot = centerY + rr * Math.sin(rad);
+            ctx.beginPath();
+            ctx.arc(xDot, yDot, 1.6, 0, Math.PI * 2);
+            ctx.fillStyle = "#fe8f72";
+            ctx.fill();
+          }
+
+          // 内圈浅色装饰环
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, 32, 0, Math.PI * 2);
+          ctx.strokeStyle = "#f7bcab";
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+
+          ctx.restore();
+        }
+
+        // ---------- 绘制指针 (根据精确时间, 毫秒级平滑角度) ----------
+        function drawHands() {
+          const { hours, minutes, seconds, milliseconds } = getPreciseTime();
+
+          // 转换到12小时制
+          const hour12 = hours % 12;
+
+          // 秒针角度: 每秒6度 + 毫秒贡献 (平滑转动)
+          const secondAngle = (seconds + milliseconds / 1000) * 6; // 度
+          // 分针角度: 每分钟6度 + 秒针贡献 (0.1度/秒)
+          const minuteAngle = (minutes + seconds / 60) * 6;
+          // 时针角度: 每小时30度 + 分钟贡献(0.5度/分) + 秒针微量提升平滑
+          const hourAngle = (hour12 + minutes / 60) * 30;
+
+          // 弧度转换
+          const secRad = ((secondAngle - 90) * Math.PI) / 180;
+          const minRad = ((minuteAngle - 90) * Math.PI) / 180;
+          const hourRad = ((hourAngle - 90) * Math.PI) / 180;
+
+          // 指针长度定义 (radius参考)
+          const hourLen = radius * 0.52;
+          const minuteLen = radius * 0.72;
+          const secondLen = radius * 0.86;
+
+          ctx.save();
+          ctx.shadowBlur = 4;
+          ctx.shadowColor = "rgba(0,0,0,0.2)";
+          // 1. 时针 (沉稳陶土色，加圆头)
+          ctx.beginPath();
+          ctx.moveTo(centerX, centerY);
+          const hourX = centerX + hourLen * Math.cos(hourRad);
+          const hourY = centerY + hourLen * Math.sin(hourRad);
+          ctx.lineTo(hourX, hourY);
+          ctx.lineWidth = 6.5;
+          ctx.lineCap = "round";
+          ctx.strokeStyle = "#4f2d21";
+          ctx.stroke();
+          // 辅助时针阴影线
+          ctx.beginPath();
+          ctx.moveTo(centerX, centerY);
+          ctx.lineTo(hourX, hourY);
+          ctx.lineWidth = 2.5;
+          ctx.strokeStyle = "#f0bfab";
+          ctx.stroke();
+
+          // 2. 分针 (优雅深珊瑚)
+          ctx.beginPath();
+          ctx.moveTo(centerX, centerY);
+          const minuteX = centerX + minuteLen * Math.cos(minRad);
+          const minuteY = centerY + minuteLen * Math.sin(minRad);
+          ctx.lineTo(minuteX, minuteY);
+          ctx.lineWidth = 4.6;
+          ctx.lineCap = "round";
+          ctx.strokeStyle = "#bf5a3e";
+          ctx.stroke();
+
+          // 3. 秒针 (细长小红风格，带反向配重)
+          ctx.beginPath();
+          ctx.moveTo(
+            centerX - 8 * Math.cos(secRad),
+            centerY - 8 * Math.sin(secRad),
+          ); // 尾部小配重
+          const secondX = centerX + secondLen * Math.cos(secRad);
+          const secondY = centerY + secondLen * Math.sin(secRad);
+          ctx.lineTo(secondX, secondY);
+          ctx.lineWidth = 2.2;
+          ctx.lineCap = "round";
+          ctx.strokeStyle = "#e64424";
+          ctx.shadowBlur = 3;
+          ctx.stroke();
+          // 秒针尖端小红点
+          ctx.beginPath();
+          ctx.arc(secondX, secondY, 3.5, 0, 2 * Math.PI);
+          ctx.fillStyle = "#e6391c";
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(secondX, secondY, 1.6, 0, 2 * Math.PI);
+          ctx.fillStyle = "#fff2ea";
+          ctx.fill();
+
+          // 中央金属轴心 (多层质感)
+          ctx.shadowBlur = 2;
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, 8, 0, 2 * Math.PI);
+          ctx.fillStyle = "#edb79e";
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, 5, 0, 2 * Math.PI);
+          ctx.fillStyle = "#d97857";
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
+          ctx.fillStyle = "#fef1e6";
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, 1.5, 0, 2 * Math.PI);
+          ctx.fillStyle = "#e65a38";
+          ctx.fill();
+
+          ctx.restore();
+        }
+
+        // ---------- 更新数字时间及日期 (实时刷新，与画布指针同步) ----------
+        function updateDigitalClock() {
+          const now = new Date();
+          const hours = now.getHours().toString().padStart(2, "0");
+          const minutes = now.getMinutes().toString().padStart(2, "0");
+          const seconds = now.getSeconds().toString().padStart(2, "0");
+          const timeString = `${hours}:${minutes}:${seconds}`;
+          const digitalElem = document.getElementById("liveDigitalClock");
+          if (digitalElem) digitalElem.innerText = timeString;
+
+          // 日期 & 星期 (中文/英文优雅)
+          const year = now.getFullYear();
+          const month = (now.getMonth() + 1).toString().padStart(2, "0");
+          const day = now.getDate().toString().padStart(2, "0");
+          const weekdays = [
+            "星期日",
+            "星期一",
+            "星期二",
+            "星期三",
+            "星期四",
+            "星期五",
+            "星期六",
+          ];
+          const weekday = weekdays[now.getDay()];
+          const dateStr = `${year}.${month}.${day}  ${weekday}`;
+          const dateElem = document.getElementById("dateWeekInfo");
+          if (dateElem) dateElem.innerText = dateStr;
+        }
+
+        // ---------- 主渲染： 绘制表盘 + 指针 (全重绘，避免残留) ----------
+        function renderClock() {
+          // 清除画布
+          ctx.clearRect(0, 0, size, size);
+          // 1. 绘制所有静态元素 (表盘刻度、数字、装饰)
+          drawDial();
+          // 2. 绘制动态指针 (基于最新实时时间)
+          drawHands();
+          // 3. 额外增添一点高光氛围 (微妙玻璃光泽)
+          ctx.save();
+          ctx.globalCompositeOperation = "lighter";
+          ctx.beginPath();
+          ctx.arc(centerX - 15, centerY - 15, 35, 0, Math.PI * 2);
+          ctx.fillStyle = "#ffffff20";
+          ctx.fill();
+          ctx.restore();
+          // 增加表盘外圈动态的微小反光点 (活泼)
+          ctx.beginPath();
+          ctx.arc(centerX + 28, centerY - 28, 8, 0, 2 * Math.PI);
+          ctx.fillStyle = "#ffece2b0";
+          ctx.fill();
+        }
+
+        // ----- 动画循环 (requestAnimationFrame, 保证指针顺滑及时间绝对精准) -----
+        let animationId = null;
+
+        function animateClock() {
+          // 实时渲染时钟指针 (基于毫秒平滑)
+          renderClock();
+          // 更新数字时间部分 (除了画布外下方时间)
+          updateDigitalClock();
+          // 持续循环
+          animationId = requestAnimationFrame(animateClock);
+        }
+
+        // 启动动画 (确保页面完全加载后)
+        window.addEventListener("load", () => {
+          // 确保画布初始绘制一次
+          renderClock();
+          updateDigitalClock();
+          // 开启动画循环
+          animateClock();
+        });
+
+        // 可选的页面关闭时取消动画 (节省资源，非必须但优雅)
+        window.addEventListener("beforeunload", () => {
+          if (animationId) {
+            cancelAnimationFrame(animationId);
+          }
+        });
+
+        // 增加resize时确保canvas比例不变，但无需额外操作，样式保持宽高比，绘图基于固定400清晰
+        // 手动处理一次视网膜兼容(无额外操作)
+      })();
+    </script>
+  </body>
+</html>
